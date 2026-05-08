@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>精靈圖切割器 ULTRA V4 - Pro Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        body { background-color: #121212; color: #e0e0e0; font-family: 'Segoe UI', system-ui, sans-serif; }
+        .panel { background-color: #1e1e1e; border: 1px solid #333; }
+        .input-field { background-color: #2d2d2d; border: 1px solid #444; color: white; padding: 6px 10px; border-radius: 6px; transition: border-color 0.2s; }
+        .input-field:focus { border-color: #3b82f6; outline: none; }
+        
+        #preview-container { 
+            position: relative; 
+            overflow: hidden; 
+            background-image: 
+                linear-gradient(45deg, #1a1a1a 25%, transparent 25%), 
+                linear-gradient(-45deg, #1a1a1a 25%, transparent 25%), 
+                linear-gradient(45deg, transparent 75%, #1a1a1a 75%), 
+                linear-gradient(-45deg, transparent 75%, #1a1a1a 75%);
+            background-size: 20px 20px;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+            cursor: grab;
+            user-select: none;
+        }
+        #preview-container:active { cursor: grabbing; }
+        canvas { image-rendering: pixelated; }
+        
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #1a1a1a; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #555; }
+    </style>
+</head>
+<body class="p-4 h-screen flex flex-col">
+    <div class="max-w-[1600px] mx-auto w-full h-full flex flex-col gap-4">
+        <header class="flex items-center justify-between px-2">
+            <div class="flex items-center gap-3">
+                <span class="text-3xl">✂️</span>
+                <h1 class="text-2xl font-bold tracking-tight">精靈圖切割器 <span class="text-blue-500">ULTRA V4</span> <span class="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full ml-2">PRO</span></h1>
+            </div>
+            <div id="status-badge" class="text-xs px-3 py-1 rounded-full bg-gray-800 text-gray-400 transition-all">等待上傳圖片...</div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 overflow-hidden">
+            <!-- 左側控制面板 -->
+            <div class="lg:col-span-3 flex flex-col gap-4 overflow-y-auto custom-scrollbar pr-2">
+                <div class="panel p-5 rounded-2xl shadow-2xl space-y-6">
+                    <!-- 1. 上傳 -->
+                    <section>
+                        <h2 class="text-xs font-bold text-gray-500 mb-3 uppercase tracking-widest">1. 來源圖片</h2>
+                        <div id="drop-zone" class="border-2 border-dashed border-gray-600 rounded-xl p-6 text-center cursor-pointer hover:border-blue-500 hover:bg-blue-500/5 transition-all group">
+                            <input type="file" id="file-input" accept="image/png" class="hidden">
+<div class="text-3xl mb-2 group-hover:scale-110 transition-transform">📁</div>
+                            <p id="file-name" class="text-sm text-gray-400">點擊或拖曳 PNG 檔案</p>
+                        </div>
+                    </section>
+
+                    <!-- 2. 切割設定 -->
+                    <section class="space-y-4">
+                        <h2 class="text-xs font-bold text-gray-500 mb-3 uppercase tracking-widest">2. 切割佈局</h2>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs text-gray-400 mb-1 ml-1">橫向格數 (A)</label>
+                                <input type="number" id="grid-a" value="4" min="1" class="input-field w-full">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-400 mb-1 ml-1">縱向格數 (B)</label>
+                                <input type="number" id="grid-b" value="3" min="1" class="input-field w-full">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-400 mb-1 ml-1">起始檔名編號</label>
+                            <div class="flex items-center gap-2">
+                                <input type="text" id="start-index" value="01" class="input-field flex-1">
+                                <span class="text-sm text-gray-500">.png</span>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- 3. 去背設定 -->
+                    <section class="space-y-4">
+                        <div class="flex items-center justify-between">
+                            <h2 class="text-xs font-bold text-gray-500 uppercase tracking-widest">3. Chroma Key 去背</h2>
+                            <label class="flex items-center gap-2 cursor-pointer text-xs text-gray-300">
+                                <input type="checkbox" id="enable-chroma" checked class="accent-blue-500"> 啟用
+                            </label>
+                        </div>
+                        
+                        <div id="chroma-controls" class="space-y-4 p-3 bg-black/20 rounded-lg border border-white/5">
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-xs text-gray-400 mb-1 ml-1">目標色</label>
+                                    <div class="flex items-center gap-2">
+                                        <input type="color" id="color-target" value="#00ff00" class="w-full h-8 cursor-pointer bg-transparent border-none">
+                                        <button id="btn-eyedropper" class="p-1.5 bg-gray-700 rounded-md hover:bg-blue-600 transition-colors" title="滴管取色">💧</button>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-400 mb-1 ml-1">對比色</label>
+                                    <input type="color" id="color-contrast" value="#ff00ff" class="w-full h-8 cursor-pointer bg-transparent border-none">
+                                </div>
+                            </div>
+
+                            <div>
+                                <div class="flex justify-between text-xs mb-1 ml-1">
+                                    <span class="text-gray-400">容許值 (Tolerance)</span>
+                                    <span id="val-tolerance" class="text-blue-400 font-mono">100</span>
+                                </div>
+                                <input type="range" id="range-tolerance" min="0" max="255" value="100" class="w-full accent-blue-500">
+                            </div>
+
+                            <div>
+                                <div class="flex justify-between text-xs mb-1 ml-1">
+                                    <span class="text-gray-400">邊緣內縮 (Inset)</span>
+<span id="val-inset" class="text-blue-400 font-mono">0px</span>
+                                </div>
+                                <input type="range" id="range-inset" min="0" max="20" value="0" class="w-full accent-blue-500">
+                            </div>
+                        </div>
+                    </section>
+
+                    <button id="btn-process" class="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-blue-900/20 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                        <span>📦 執行並下載 ZIP</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 右側預覽區 -->
+            <div class="lg:col-span-9 flex flex-col gap-3 overflow-hidden">
+                <div class="panel p-3 rounded-2xl flex items-center justify-between">
+                    <div class="flex items-center gap-4">
+                        <div class="flex items-center gap-2 px-3 py-1 bg-black/30 rounded-full border border-white/5">
+                            <span class="text-xs text-gray-500 font-medium">目前縮放:</span>
+                            <span id="zoom-display" class="text-sm font-mono text-blue-400">100%</span>
+                        </div>
+                        <button id="btn-reset-view" class="text-xs px-3 py-1 rounded-full bg-gray-700 hover:bg-gray-600 transition-colors flex items-center gap-1">
+                            <span>🔄 恢復預設視圖</span>
+                        </button>
+                    </div>
+                    <div class="text-[10px] text-gray-500 uppercase tracking-tighter italic">
+                        Wheel: Zoom / LeftClick: Pan / Drop: Upload
+                    </div>
+                </div>
+                
+                <div id="preview-container" class="panel rounded-2xl shadow-inner flex-1 relative">
+                    <div id="viewport" class="absolute origin-top-left">
+                        <canvas id="main-canvas"></canvas>
+                        <canvas id="overlay-canvas" class="absolute top-0 left-0 pointer-events-none"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- 狀態管理 ---
+        let originalImage = null;
+        let isEyedropperActive = false;
+        let isDragging = false;
+        let lastMousePos = { x: 0, y: 0 };
+        
+        // 視圖狀態
+        let viewState = {
+            scale: 1,
+            offsetX: 0,
+            offsetY: 0
+        };
+
+        const canvas = document.getElementById('main-canvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const overlayCanvas = document.getElementById('overlay-canvas');
+        const octx = overlayCanvas.getContext('2d');
+        const viewport = document.getElementById('viewport');
+
+        const elements = {
+            fileInput: document.getElementById('file-input'),
+            dropZone: document.getElementById('drop-zone'),
+            gridA: document.getElementById('grid-a'),
+            gridB: document.getElementById('grid-b'),
+            startIndex: document.getElementById('start-index'),
+            enableChroma: document.getElementById('enable-chroma'),
+            colorTarget: document.getElementById('color-target'),
+            colorContrast: document.getElementById('color-contrast'),
+            rangeTolerance: document.getElementById('range-tolerance'),
+            rangeInset: document.getElementById('range-inset'),
+            btnProcess: document.getElementById('btn-process'),
+            btnEyedropper: document.getElementById('btn-eyedropper'),
+            btnResetView: document.getElementById('btn-reset-view'),
+            previewContainer: document.getElementById('preview-container'),
+            zoomDisplay: document.getElementById('zoom-display'),
+            statusBadge: document.getElementById('status-badge')
+        };
+
+        // --- 初始化 ---
+elements.dropZone.onclick = () => elements.fileInput.click();
+        elements.fileInput.onchange = (e) => handleFile(e.target.files[0]);
+        
+        elements.dropZone.ondragover = (e) => { e.preventDefault(); elements.dropZone.classList.add('border-blue-500'); };
+        elements.dropZone.ondragleave = () => elements.dropZone.classList.remove('border-blue-500');
+        elements.dropZone.ondrop = (e) => {
+            e.preventDefault();
+            elements.dropZone.classList.remove('border-blue-500');
+            handleFile(e.dataTransfer.files[0]);
+        };
+
+        function handleFile(file) {
+            if (!file || file.type !== 'image/png') {
+                alert('請上傳 PNG 格式圖片');
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    originalImage = img;
+                    document.getElementById('file-name').innerText = file.name;
+                    elements.statusBadge.innerText = '圖片已就緒';
+                    elements.statusBadge.className = 'text-xs px-3 py-1 rounded-full bg-blue-900/40 text-blue-400 border border-blue-800';
+                    resetView();
+                    render();
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function resetView() {
+            viewState = { scale: 1, offsetX: 0, offsetY: 0 };
+            updateViewportTransform();
+        }
+
+        function updateViewportTransform() {
+            viewport.style.transform = `translate(${viewState.offsetX}px, ${viewState.offsetY}px) scale(${viewState.scale})`;
+            elements.zoomDisplay.innerText = `${Math.round(viewState.scale * 100)}%`;
+        }
+
+        // --- 核心算法 ---
+
+        function hexToRgb(hex) {
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return result ? { r: parseInt(result[1], 16), g: parseInt(result[2], 16), b: parseInt(result[3], 16) } : null;
+        }
+
+        function applyChromaKey(sourceCtx, width, height, targetHex, tolerance, inset, contrastHex, isPreview = true) {
+            const imgData = sourceCtx.getImageData(0, 0, width, height);
+            const data = imgData.data;
+            const target = hexToRgb(targetHex);
+            const contrast = hexToRgb(contrastHex);
+            
+            const mask = new Uint8Array(width * height);
+            for (let i = 0; i < data.length; i += 4) {
+                const diff = Math.sqrt(Math.pow(data[i]-target.r, 2) + Math.pow(data[i+1]-target.g, 2) + Math.pow(data[i+2]-target.b, 2));
+                mask[i/4] = diff <= tolerance ? 0 : 255;
+            }
+
+            if (inset > 0) {
+                const newMask = new Uint8Array(mask);
+                for (let y = 0; y < height; y++) {
+                    for (let x = 0; x < width; x++) {
+                        let isBorder = false;
+                        for (let dy = -inset; dy <= inset; dy++) {
+                            for (let dx = -inset; dx <= inset; dx++) {
+                                const nx = x + dx; const ny = y + dy;
+                                if (nx >= 0 && nx < width && ny >= 0 && ny < height && mask[ny * width + nx] === 0) {
+                                    isBorder = true; break;
+                                }
+                            }
+                            if (isBorder) break;
+                        }
+                        newMask[y * width + x] = isBorder ? 0 : 255;
+                    }
+                }
+                for (let i = 0; i < mask.length; i++) mask[i] = newMask[i];
+            }
+
+            for (let i = 0; i < data.length; i += 4) {
+                if (mask[i/4] === 0) {
+                    if (isPreview) {
+                        data[i] = contrast.r; data[i+1] = contrast.g; data[i+2] = contrast.b; data[i+3] = 255;
+                    } else {
+                        data[i+3] = 0; // 真正輸出時設為透明
+}
+                }
+            }
+            return imgData;
+        }
+
+        function render() {
+            if (!originalImage) return;
+
+            canvas.width = originalImage.width;
+            canvas.height = originalImage.height;
+            ctx.drawImage(originalImage, 0, 0);
+
+            if (elements.enableChroma.checked) {
+                const processed = applyChromaKey(
+                    ctx, canvas.width, canvas.height, 
+                    elements.colorTarget.value, parseInt(elements.rangeTolerance.value), 
+                    parseInt(elements.rangeInset.value), elements.colorContrast.value, true
+                );
+                ctx.putImageData(processed, 0, 0);
+            }
+
+            overlayCanvas.width = canvas.width;
+            overlayCanvas.height = canvas.height;
+            octx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+            octx.strokeStyle = '#00ff00';
+            octx.lineWidth = 2;
+
+            const a = parseInt(elements.gridA.value) || 1;
+            const b = parseInt(elements.gridB.value) || 1;
+            const cellW = canvas.width / a;
+            const cellH = canvas.height / b;
+
+            for (let i = 1; i < a; i++) {
+                octx.beginPath(); octx.moveTo(i * cellW, 0); octx.lineTo(i * cellW, canvas.height); octx.stroke();
+            }
+            for (let j = 1; j < b; j++) {
+                octx.beginPath(); octx.moveTo(0, j * cellH); octx.lineTo(canvas.width, j * cellH); octx.stroke();
+            }
+        }
+
+        // --- 互動控制 ---
+
+        elements.btnResetView.onclick = resetView;
+
+        elements.previewContainer.onwheel = (e) => {
+            e.preventDefault();
+            const zoomSpeed = 0.001;
+            const delta = -e.deltaY;
+            const oldScale = viewState.scale;
+            const newScale = Math.max(0.05, Math.min(10, viewState.scale + delta * zoomSpeed));
+            
+            // 以滑鼠位置為中心縮放
+            const rect = elements.previewContainer.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            const worldX = (mouseX - viewState.offsetX) / oldScale;
+            const worldY = (mouseY - viewState.offsetY) / oldScale;
+            
+            viewState.scale = newScale;
+            viewState.offsetX = mouseX - worldX * newScale;
+            viewState.offsetY = mouseY - worldY * newScale;
+            
+            updateViewportTransform();
+        };
+
+        elements.previewContainer.onmousedown = (e) => {
+            if (isEyedropperActive) return;
+            isDragging = true;
+            lastMousePos = { x: e.clientX, y: e.clientY };
+        };
+
+        window.onmousemove = (e) => {
+            if (!isDragging) return;
+            const dx = e.clientX - lastMousePos.x;
+            const dy = e.clientY - lastMousePos.y;
+            viewState.offsetX += dx;
+            viewState.offsetY += dy;
+            lastMousePos = { x: e.clientX, y: e.clientY };
+            updateViewportTransform();
+        };
+
+        window.onmouseup = () => { isDragging = false; };
+
+        elements.btnEyedropper.onclick = () => {
+            isEyedropperActive = true;
+            elements.btnEyedropper.classList.add('bg-blue-600');
+            elements.statusBadge.innerText = '💧 滴管模式：請點擊圖片取色';
+        };
+
+        canvas.onclick = (e) => {
+            if (!isEyedropperActive) return;
+            const rect = canvas.getBoundingClientRect();
+            const x = Math.floor((e.clientX - rect.left) / viewState.scale);
+            const y = Math.floor((e.clientY - rect.top) / viewState.scale);
+            const data = ctx.getImageData(x, y, 1, 1).data;
+            elements.colorTarget.value = `#${((1 << 24) + (data[0] << 16) + (data[1] << 8) + data[2]).toString(16).slice(1)}`;
+            isEyedropperActive = false;
+            elements.btnEyedropper.classList.remove('bg-blue-600');
+            elements.statusBadge.innerText = '圖片已就緒';
+            render();
+        };
+
+[elements.gridA, elements.gridB, elements.enableChroma, elements.colorTarget, 
+         elements.colorContrast, elements.rangeTolerance, elements.rangeInset].forEach(el => {
+            el.oninput = () => {
+                if (el.id === 'range-tolerance') document.getElementById('val-tolerance').innerText = el.value;
+                if (el.id === 'range-inset') document.getElementById('val-inset').innerText = el.value + 'px';
+                render();
+            };
+        });
+
+        // --- 輸出處理 ---
+        elements.btnProcess.onclick = async () => {
+            if (!originalImage) return;
+            elements.btnProcess.disabled = true;
+            elements.btnProcess.innerText = '⌛️ 處理中...';
+
+            const a = parseInt(elements.gridA.value) || 1;
+            const b = parseInt(elements.gridB.value) || 1;
+            const startIdxStr = elements.startIndex.value;
+            const startIdx = parseInt(startIdxStr) || 0;
+            const paddingLen = startIdxStr.length;
+
+            const zip = new JSZip();
+            const cellW = originalImage.width / a;
+            const cellH = originalImage.height / b;
+
+            const procCanvas = document.createElement('canvas');
+            const pctx = procCanvas.getContext('2d');
+            procCanvas.width = cellW; procCanvas.height = cellH;
+
+            const outCanvas = document.createElement('canvas');
+            const octx_out = outCanvas.getContext('2d');
+            outCanvas.width = 320; outCanvas.height = 270;
+
+            for (let row = 0; row < b; row++) {
+                for (let col = 0; col < a; col++) {
+                    pctx.clearRect(0, 0, cellW, cellH);
+                    pctx.drawImage(originalImage, col * cellW, row * cellH, cellW, cellH, 0, 0, cellW, cellH);
+                    
+                    if (elements.enableChroma.checked) {
+                        const imgData = applyChromaKey(pctx, cellW, cellH, elements.colorTarget.value, 
+                                                   parseInt(elements.rangeTolerance.value), parseInt(elements.rangeInset.value), 
+                                                   elements.colorContrast.value, false);
+                        pctx.putImageData(imgData, 0, 0);
+                    }
+
+                    octx_out.clearRect(0, 0, 320, 270);
+                    octx_out.drawImage(procCanvas, 0, 0, cellW, cellH, 0, 0, 320, 270);
+
+                    const fileName = (startIdx + (row * a + col)).toString().padStart(paddingLen, '0') + '.png';
+                    const blob = await new Promise(res => outCanvas.toBlob(res, 'image/png'));
+                    zip.file(fileName, blob);
+                }
+            }
+
+            const content = await zip.generateAsync({ type: 'blob' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(content);
+            link.download = `slicer_ultra_v4_export_${Date.now()}.zip`;
+            link.click();
+
+            elements.btnProcess.disabled = false;
+            elements.btnProcess.innerText = '📦 執行並下載 ZIP';
+        };
+    </script>
+</body>
+</html>
